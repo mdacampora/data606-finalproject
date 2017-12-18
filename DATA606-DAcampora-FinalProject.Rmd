@@ -1,0 +1,215 @@
+---
+title: "DATA606-Final Project"
+author: "Michael D'Acampora"
+date: "December 17, 2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+### Part 1 - Introduction: Can a machine learning model be a better predictor of annual auto insurance claims than basic statistics?
+
+Machine learning has been such a hot topic over the past couple of years and I am interested in learning more about the topic and how it compares to regular regression models.
+
+
+### Part 2 - Data:
+The data were colleted from Kaggle's Safe Driver Prediction competition sponsored by Porto Seguero, a Brazilian auto insurance company. 
+https://www.kaggle.com/c/porto-seguro-safe-driver-prediction
+
+The cases would be the drivers in this dataset.
+
+### Part 3 - Exploratory data analysis:
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(caret)
+library(verification)
+library(repr)
+library(ROCR)
+library(dplyr)
+```
+
+
+```{r}
+dtrain <- read_csv('train.csv', col_types = cols())
+glimpse(dtrain)
+```
+
+There are just over 595,000 observations and 59 columns. The target column is the dependent variable, where a 1 would mean a customer filed a claim and 0 if they did not.
+
+We will first take a look at how many claims have been filed from this dataset.
+
+```{r}
+ggplot(dtrain,aes(x=target))+geom_bar()
+
+dtrain %>%  
+  group_by(target) %>% 
+  summarise(n())
+```
+
+
+```{r echo=FALSE}
+claimed <- 21694
+unclaimed <- 573518 
+pc.claimed <- round((claimed/unclaimed)*100, 2)
+paste("We can see that", pc.claimed, "% of the customers in this dataset filed a claim")
+```
+
+The data are anonymized, but we do know variables that end in _cat are categorical and those ending in _bin are binary variables. Everything else is considered to be continuous. Additionally, missing data in this set are written as -1 instead of NA, which we will need to fix so that non-available data isn't misconstrued as an additional factor.
+
+
+```{r}
+dtrain[dtrain == -1] <- NA
+sum(is.na(dtrain))
+```
+
+As we saw in the glimpse of the dataset, the "_cat" variables are integers and need to be converted from integers to factors.
+```{r}
+cat_variables <- names(dtrain)[grep('_cat$', names(dtrain))]
+
+dtrain <- dtrain %>%
+  mutate_at(.vars = cat_variables, .funs = as.factor)
+```
+
+Next we will want to perform dummy variable encoding 
+```{r}
+dtrain <- model.matrix(~ . - 1, data = dtrain)
+```
+
+From here we will split the data into a training and test set. The data are split with 80% of the observations used for training and 20% for testing. We will create a sample index and name the testing and training variables based on it.
+```{r}
+set.seed(1)
+
+training_slice <- sample(c(TRUE, FALSE), replace = TRUE, size = nrow(dtrain), prob = c(0.8, 0.2))
+
+training <- as.data.frame(dtrain[training_slice, ])
+testing <- as.data.frame(dtrain[!training_slice, ])
+```
+
+Here we use `glm` (general linear model) to fit our model and obtain a summary.
+```{r}
+model <- glm(target ~ . - id, data = training, family = binomial(link = 'logit'))
+
+summary(model)
+```
+
+After building and summarizing hte model we will make predictions on the testing set.
+```{r}
+preds <- predict(model, newdata = testing, type = "response")
+```
+
+Once we make the predictions, we analyze the accuracy by calculating Area Under the Curve (AUC)
+```{r}
+p <- predict(model, newdata = testing, type="response")
+pr <- prediction(p, testing$target)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+
+auc
+```
+
+It appears the logistic regression model has a approximately a 61.6% accuracy at prediction driver claims.
+
+
+#### Machine Learning Model
+Now we can turn to a machine learning algorithm to see if it can do a better job of predicting whetner a driver will file a claim or not.
+
+In this case we will use Machine Learning code obtained from a Kaggle user who uses the xgboost package with caret tuning and gini scoring https://www.kaggle.com/captcalculator/r-xgboost-with-caret-tuning-and-gini-score/code
+
+Xgboost, short for extreme gradient boosting, is a machine learning library which is used for building predictive tree models and is popular within the Kaggle community. The term boosing is a technique whereby new models are added to correct the errors made by existing models until no further improvement can be made.
+
+The objective of the XGBoost model is to use a gradient descent algorithm <http://www.onmyphd.com/?p=gradient.descent> to minimize the loss when adding new models.
+
+The code was run with the following results:
+
+
+  + Fold1: eta=0.05, max_depth=4, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  - Fold1: eta=0.05, max_depth=4, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  + Fold1: eta=0.05, max_depth=6, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  - Fold1: eta=0.05, max_depth=6, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  + Fold1: eta=0.10, max_depth=4, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  - Fold1: eta=0.10, max_depth=4, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  + Fold1: eta=0.10, max_depth=6, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  - Fold1: eta=0.10, max_depth=6, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  + Fold2: eta=0.05, max_depth=4, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  - Fold2: eta=0.05, max_depth=4, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  + Fold2: eta=0.05, max_depth=6, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  - Fold2: eta=0.05, max_depth=6, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  + Fold2: eta=0.10, max_depth=4, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  - Fold2: eta=0.10, max_depth=4, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  + Fold2: eta=0.10, max_depth=6, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  - Fold2: eta=0.10, max_depth=6, gamma=0.01, colsample_bytree=0.75, min_child_weight=0, subsample=0.5, nrounds=350 
+  
+  Aggregating results
+  Selecting tuning parameters
+  
+  Fitting nrounds = 350, max_depth = 4, eta = 0.05, gamma = 0.01, colsample_bytree = 0.75, min_child_weight = 0, subsample = 0.5 on full   training set
+   
+  print(Sys.time() - start)
+  Time difference of 12.29886 mins
+  
+  # make predictions
+  
+  preds <- predict(xgbmod, newdata = x_test, type = "prob")
+  preds_final <- predict(xgbmod, newdata = dtest, type = "prob")
+  
+  # convert test target values back to numeric for gini and roc.plot functions
+  
+  levels(y_test) <- c("0", "1")
+  y_test_raw <- as.numeric(levels(y_test))[y_test]
+  
+  # Diagnostics
+  
+  print(xgbmod$results)
+  eta max_depth gamma colsample_bytree min_child_weight subsample nrounds NormalizedGini NormalizedGiniSD
+  1 0.05         4  0.01             0.75                0       0.5     350      0.2686265      0.007491148
+  3 0.10         4  0.01             0.75                0       0.5     350      0.2546387      0.002516451
+  2 0.05         6  0.01             0.75                0       0.5     350      0.2614964      0.004365784
+  4 0.10         6  0.01             0.75                0       0.5     350      0.2222005      0.001365411
+  
+  print(xgbmod$resample)
+    NormalizedGini Resample
+  1      0.2633295    Fold1
+  2      0.2739235    Fold2
+   
+  # plot results (useful for larger tuning grids)
+  
+  plot(xgbmod)
+  
+  # score the predictions against test data
+  
+  normalizedGini(y_test_raw, preds$Yes)
+  [1] 0.2779311
+
+To obtain an apples to apples comparison of accuracy between our logistic regression model and the Machine Learning algorithm created by the Kaggle user, one can convert the Gini score to AUC with the formula Gini = (2 * AUC) - 1:
+
+```{r}
+Gini <- 0.2779311
+AUC <- (Gini + 1) / 2
+AUC
+```
+
+The Area Under the Curve accuracy of the xgboost model is approximately 63.9%.
+
+### Part 5 - Conclusion: 
+
+The Machine Learning model used with XGBoost appears about 2.6% more accurate than a simple logistic regression model. If given a larger data set the ML model may be even more accurate.
+
+Some of the errors in this experiment could be the preprocessing of the data. I obtained some warning messages about potential rank-deficiencies and it was a large undertaking trying to understand an anymous data source for this project. As a beginner, it is uncomfortable not being able to make real-world sense of a correlation or relationshop between random variables. Also choosing Machine Learning algorithms for the project are more complicated and in more variety than I anticipated. Another minor constraint was the fact that the ML model took over 12 minutes  to run each time, which made knitting a challenge.
+
+Although there appears to be only a 2.6% increase in accuracy, when applied over large numbers Machine Learning algorithms could significantly help Porto Seguero more accurately price policies and run a more efficient business.
+
+
+### References:
+https://www.kaggle.com/c/porto-seguro-safe-driver-prediction
+
+https://www.r-bloggers.com/how-to-perform-a-logistic-regression-in-r/
+
+https://topepo.github.io/caret/pre-processing.html#dummy
+
+https://www.kaggle.com/captcalculator/r-xgboost-with-caret-tuning-and-gini-score/code
+
